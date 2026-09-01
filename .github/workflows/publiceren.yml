@@ -1,0 +1,48 @@
+# Publiceert naar PyPI zodra er een versietag wordt gepusht (v0.1.0, v0.1.1, …).
+#
+# Waarom Trusted Publishing en geen API-token: dan staat er nergens een sleutel — niet in
+# een secret, niet op deze machine — en PyPI vraagt bij het uploaden ook geen tweede factor.
+# Eenmalig instellen op pypi.org onder "Publishing":
+#   owner        shinobitools
+#   repository   shinobitools-py
+#   workflow     publiceren.yml
+#   environment  release
+name: publiceren
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  bouwen-en-publiceren:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write        # nodig voor Trusted Publishing; verder niets
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # De test draait zonder net. De live-test bewust NIET hier: die zou de eigen API
+      # aanroepen bij elke publicatie, en een storing daar hoort geen release te blokkeren.
+      - name: testen
+        run: python3 tests/test_client.py
+
+      - name: bouwen
+        run: |
+          python3 -m pip install --quiet build
+          python3 -m build
+
+      - name: controleren dat de tag bij de versie hoort
+        run: |
+          versie=$(python3 -c "import shinobitools; print(shinobitools.__version__)")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$versie" != "$tag" ]; then
+            echo "tag $tag hoort niet bij versie $versie in __init__.py"; exit 1
+          fi
+          echo "tag en versie komen overeen: $versie"
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
